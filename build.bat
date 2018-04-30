@@ -1,0 +1,1 @@
+gcc -o hashwes hashwes.c -I. ./libcrypto.dll.a. ./libssl.dll.a

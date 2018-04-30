@@ -1,0 +1,15 @@
+login.txt
+output.txt
+connect.txt
+stderr.txt
+whispers.txt
+nppBackup
+__pycache__
+tmp.txt
+hashc/*
+log/
+nohup.out
+*.log
+
+*.iml
+.idea/
