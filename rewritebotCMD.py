@@ -112,11 +112,13 @@ class CommandHandler:
             raise WesException("wesreconnect command used").reconnectWes()
         elif command == "users" and permission > PERMISSION_TRUSTED:
             reply(self.main.users.getUsers())
-        elif command == "games" and permission>PERMISSION_TRUSTED:
+        elif command == "games" and permission > PERMISSION_TRUSTED:
             reply(self.main.games.getGames())
         elif command == "online" and permission > PERMISSION_TRUSTED:
             reply(self.main.users.getOnlineUsers())
         elif command == "follow" and permission > PERMISSION_TRUSTED:
+            if not args or args == "":
+                args = sender
             user = self.main.users.get(args)
             if user:
                 self.wes.send_wml_string("[join]\nid={}\nobserve=yes\n[/join]".format(user.game_id))
@@ -128,7 +130,7 @@ class CommandHandler:
             self.sayOnWesnoth(args)
         elif command == "m" and permission > PERMISSION_TRUSTED:
             receiver, msg = args.split(" ", 1)
-            self.sendPrivately(receiver, origin, msg)
+            self.sendPrivately(receiver, "wes", msg)
         elif command == "control" and permission > PERMISSION_TRUSTED:
             parts = args.split(" ", 1)
             if len(parts) == 2:

@@ -75,6 +75,9 @@ class WesBot:
                 elif act == WesException.FATAL:
                     self.signal_actions.add(WesException.QUIT)
                     self.log.error("Fatal error")
+                elif act == WesException.ASSERT:
+                    self.signal_actions.add(WesException.QUIT)
+                    self.log.error("Assertion failed")
                 self.signal_actions.add(act)
 
             self.log.exception(e)

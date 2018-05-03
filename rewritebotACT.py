@@ -13,7 +13,7 @@ from rewritebotSCHEMA import User, Game, WesException
 
 class Actor:
     def __init__(self, main: 'WesBot'):
-        self.log_cutoff_len = 2500
+        self.log_cutoff_len = 500
         self.main = main
         self.cmd = main.commandHandler
         self.parser = wmlparser.Parser(None)
@@ -83,10 +83,11 @@ class Actor:
             self.main.log.debug("%s %s", child.get_name(), index)
             for child in child.get_all(tag="user"):
                 self.main.log.debug("user should be inserted")
-                self.main.users.insert(User(child), index)
+                self.main.users.insertUser(User(child), index)
             for child in child.get_all(tag="game"):
-                self.main.log.debug("game should be inserted")
-                self.main.games.addGame(Game(child))
+                g = Game(child)
+                self.main.log.debug("game %s(%s) should be inserted to %s", g.name, g.id, index)
+                self.main.games.insertGame(g, index)
 
         for child in node.get_all(tag="delete_child"):
             index = int(child.get_text_val("index"))
@@ -127,9 +128,7 @@ class Actor:
         # self.main.log.debug("on gamelist %s", node.debug()[:self.log_cutoff_len])
         # save them to games
         for game in node.get_all(tag="game"):
-            g = Game(game)
-            self.main.games.addGame(g)
-            self.main.log.debug("saved game %s", g.name)
+            self.main.games.addInitialGame(Game(game))
 
     def actOnWhisper(self, node: wmlparser.TagNode):
         self.main.log.debug("on whisper %s", node.debug())

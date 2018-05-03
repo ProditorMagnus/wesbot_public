@@ -100,6 +100,8 @@ class WesIrc:
         try:
             response: str = self.sock.recv(4096).decode("utf8")
             response = self.responseBuffer + response
+            if len(response) == 0:
+                raise WesException("IRC recv returned len 0").addAction(WesException.QUIT_IRC)
             self.responseBuffer = ""
             splitlines = response.splitlines(True)
             unhandledResponse = ""

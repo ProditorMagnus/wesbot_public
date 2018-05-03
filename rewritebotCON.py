@@ -132,6 +132,8 @@ class WesSock:
             chunks = []
             bytes_recd = 0
             chunk = self.sock.recv(4)
+            if len(chunk) == 0:
+                raise WesException("wes recv len 0").addAction(WesException.QUIT_WES)
 
             bytes_wanted = int.from_bytes(chunk, byteorder="big")
             while bytes_recd != bytes_wanted:
