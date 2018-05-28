@@ -14,6 +14,7 @@ from rewritebotSCHEMA import WesException
 
 
 class WesSock:
+    LOG_RECEIVED = False
     socketTimeout = 1
     sock: socket.socket
 
@@ -31,9 +32,9 @@ class WesSock:
         fh_rec.setFormatter(formatter)
         self.log_sent.setLevel(logging.DEBUG)
         self.log_rec.setLevel(logging.DEBUG)
-        if (self.log_sent.hasHandlers()):
+        if self.log_sent.hasHandlers():
             self.log_sent.handlers.clear()
-        if (self.log_rec.hasHandlers()):
+        if self.log_rec.hasHandlers():
             self.log_rec.handlers.clear()
         self.log_sent.addHandler(fh_send)
         self.log_rec.addHandler(fh_rec)
@@ -150,7 +151,8 @@ class WesSock:
             result: bytes = gzip.decompress(b''.join(chunks))
             if len(result) == 0:
                 raise WesException("Received empty, so quitting").addAction(WesException.QUIT_WES)
-            self.log_rec.debug(result)
+            if self.LOG_RECEIVED:
+                self.log_rec.debug(result)
             return result
         except socket.timeout:
             return b''

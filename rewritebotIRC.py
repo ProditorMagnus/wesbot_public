@@ -29,7 +29,7 @@ class WesIrc:
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         fh.setFormatter(formatter)
         self.log.setLevel(logging.DEBUG)
-        if (self.log.hasHandlers()):
+        if self.log.hasHandlers():
             self.log.handlers.clear()
         self.log.addHandler(fh)
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -100,8 +100,8 @@ class WesIrc:
         try:
             response: str = self.sock.recv(4096).decode("utf8")
             response = self.responseBuffer + response
-            if len(response) == 0:
-                raise WesException("IRC recv returned len 0").addAction(WesException.QUIT_IRC)
+            # if len(response) == 0:
+            #     raise WesException("IRC recv returned len 0").addAction(WesException.QUIT_IRC)
             self.responseBuffer = ""
             splitlines = response.splitlines(True)
             unhandledResponse = ""

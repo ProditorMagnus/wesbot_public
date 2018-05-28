@@ -36,7 +36,7 @@ class Actor:
                 if type(node) is wmlparser.AttributeNode:
                     attr.append(node)
                 else:
-                    self.main.log.debug("got node %s", node.get_name())
+                    self.main.log.log(2, "got node %s", node.get_name())
                     if node.get_name() == "gamelist_diff":
                         self.actOnGamelistDiff(node)
                     elif node.get_name() == "user":
@@ -74,30 +74,31 @@ class Actor:
             # for node in tags:
             #     self.actOnWML(node.get_all(), path + [node.get_name()])
         elif type(wml) is wmlparser.AttributeNode:
-            self.main.log.debug("AttributeNode @%s %s %s", path, wml.get_name(), wml.get_text())
+            self.main.log.log(2, "AttributeNode @%s %s %s", path, wml.get_name(), wml.get_text())
 
     def actOnGamelistDiff(self, node: wmlparser.TagNode):
-        self.main.log.debug("in actOnGamelistDiff with %s", node.get_name())
+        self.main.log.log(2, "in actOnGamelistDiff with %s", node.get_name())
         for child in node.get_all(tag="insert_child"):
             index = int(child.get_text_val("index"))
-            self.main.log.debug("%s %s", child.get_name(), index)
+            self.main.log.log(3, "%s %s", child.get_name(), index)
             for child in child.get_all(tag="user"):
-                self.main.log.debug("user should be inserted")
-                self.main.users.insertUser(User(child), index)
+                u = User(child)
+                self.main.log.log(5, "user %s should be inserted to %s", u.name, index)
+                self.main.lobby.users.insertUser(u, index)
             for child in child.get_all(tag="game"):
                 g = Game(child)
-                self.main.log.debug("game %s(%s) should be inserted to %s", g.name, g.id, index)
-                self.main.games.insertGame(g, index)
+                self.main.log.log(5, "game %s(%s) should be inserted to %s", g.name, g.id, index)
+                self.main.lobby.games.insertGame(g, index)
 
         for child in node.get_all(tag="delete_child"):
             index = int(child.get_text_val("index"))
-            self.main.log.debug("%s %s", child.get_name(), index)
+            self.main.log.log(3, "%s %s", child.get_name(), index)
             if len(child.get_all(tag="user")) == 1:
-                self.main.log.debug("user %s should be removed" % index)
-                self.main.users.deleteI(index)
+                self.main.log.log(5, "user %s should be removed" % index)
+                self.main.lobby.users.deleteI(index)
             elif len(child.get_all(tag="game")) == 1:
-                self.main.log.debug("game %s should be removed" % index)
-                self.main.games.removeGame(index)
+                self.main.log.log(5, "game %s should be removed" % index)
+                self.main.lobby.games.removeGame(index)
             else:
                 self.main.log.error("actOnGamelistDiff with %s users and %s games",
                                     len(child.get_all(tag="user")),
@@ -113,22 +114,23 @@ class Actor:
 
     def actOnUser(self, node: wmlparser.TagNode):
         # self.main.log.error("actOnUser should not be called currently")  # it should, when first joining lobby
-        self.main.log.debug("on user %s", node.debug())
+        self.main.log.log(2, "on user %s", node.debug())
         # for att in node.get_all(att=""):
         # print("user attr",att.get_name(), att.get_text())
 
         # maybe should update some stuff?
-        self.main.users.addIfAbsent(User(node))
+        # should happen when first connecting
+        self.main.lobby.users.addInitialUser(User(node))
 
-        self.main.log.debug(self.main.users.get(node.get_text_val("name")))
+        self.main.log.log(2, self.main.lobby.users.get(node.get_text_val("name")))
 
     def actOnGamelist(self, node: wmlparser.TagNode):
         # when first connecting to lobby
-        self.main.log.debug("on gamelist")
+        self.main.log.log(2, "on gamelist")
         # self.main.log.debug("on gamelist %s", node.debug()[:self.log_cutoff_len])
         # save them to games
         for game in node.get_all(tag="game"):
-            self.main.games.addInitialGame(Game(game))
+            self.main.lobby.games.addInitialGame(Game(game))
 
     def actOnWhisper(self, node: wmlparser.TagNode):
         self.main.log.debug("on whisper %s", node.debug())
@@ -136,7 +138,7 @@ class Actor:
         message = node.get_text_val("message")
         self.main.log.debug("%s %s %s", sender, "~", message)
         whisper = True
-        self.cmd.onWesMessage(message, sender, self.main.users.isRegistered(sender), whisper)
+        self.cmd.onWesMessage(message, sender, self.main.lobby.users.isRegistered(sender), whisper)
 
     def actOnMessage(self, node: wmlparser.TagNode):
         self.main.log.debug("on message %s", node.debug())
@@ -148,14 +150,14 @@ class Actor:
             self.main.log.error("sender or message is None in actOnMessage")
             return
         self.main.log.debug("%s %s %s", sender, ">", message)
-        self.cmd.onWesMessage(message, sender, self.main.users.isRegistered(sender))
+        self.cmd.onWesMessage(message, sender, self.main.lobby.users.isRegistered(sender))
 
     def actOnSpeak(self, node: wmlparser.TagNode):
         self.main.log.debug("on speak %s", node.debug())
         sender = node.get_text_val("id")
         message = node.get_text_val("message")
         self.main.log.debug("%s %s %s", sender, ">", message)
-        self.cmd.onWesMessage(message, sender, self.main.users.isRegistered(sender))
+        self.cmd.onWesMessage(message, sender, self.main.lobby.users.isRegistered(sender))
 
     def actOnObserver(self, node: wmlparser.TagNode):
         self.main.log.debug("on observer %s", node.debug())
@@ -179,4 +181,4 @@ class Actor:
             # TODO test if ping is used anymore, since seems that not
             # if a.get_name() == "ping":
             #     continue
-            self.main.log.debug("Attr @%s %s=%s", path, a.get_name(), a.get_text())
+            self.main.log.log(2, "Attr @%s %s=%s", path, a.get_name(), a.get_text())

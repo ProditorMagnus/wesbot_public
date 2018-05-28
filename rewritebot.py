@@ -1,7 +1,6 @@
 #!/usr/bin/python3.6
 import logging
 import logging.handlers
-
 import sys
 import os
 
@@ -13,11 +12,31 @@ from rewritebotACT import Actor
 from rewritebotSCHEMA import *
 
 
+def getLogger(filename: str, name: str) -> 'Logger':
+    log = logging.getLogger(name)
+    fh = logging.handlers.RotatingFileHandler("log/{}.log".format(filename), encoding="utf8",
+                                              maxBytes=10 * 1024 * 1024,
+                                              backupCount=2)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    fh.setFormatter(formatter)
+    log.setLevel(logging.DEBUG)
+    if log.hasHandlers():
+        log.handlers.clear()
+    log.addHandler(fh)
+    return log
+
+
 class WesBot:
+    lobby: LobbyHolder
+    cfg: WesSettings
     irc: WesIrc
     commandHandler: CommandHandler
     wesSock: WesSock
     actor: Actor
+
+    userLog: 'Logger' = getLogger("users", "users")
+    gameLog: 'Logger' = getLogger("games", "games")
+    messageLog: 'Logger' = getLogger("messages", "messages")
 
     def __init__(self):
         self.cfg = WesSettings
@@ -25,22 +44,19 @@ class WesBot:
         self.irc = None
         self.signal_actions = set()
         # TODO gameholder+userholder to lobbyholder to see who is in what game
-        self.games: GameHolder = GameHolder(self)
-        self.users = UserHolder(self)
-        self.log = logging.getLogger("general")
-        fh = logging.handlers.RotatingFileHandler("log/general.log", maxBytes=10 * 1024 * 1024, backupCount=2)
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        fh.setFormatter(formatter)
-        self.log.setLevel(logging.DEBUG)
-        self.log.addHandler(fh)
-        self.commandHandler = CommandHandler(self, self.cfg.botMasterNames[:], self.cfg.botMasterNames[:])
+        # self.games: GameHolder = GameHolder(self)
+        # self.users = UserHolder(self)
+        self.lobby = LobbyHolder(self, getLogger("stats", "stats"))
+        self.log = getLogger("general", "general")
+        self.commandHandler = CommandHandler(self, self.cfg.botMasterNames[:], self.cfg.botIrcMasterNames[:])
         self.actor = Actor(self)
 
-    def handleWesResponse(self):
+    def handleWesResponse(self) -> bool:  # whether there was a response
         response = self.wesSock.receive_string()
         if len(response) == 0:
-            return
+            return False
         self.actor.actOnWML(self.actor.parseWML(response))
+        return True
 
     def main(self):
         cfg = self.cfg
@@ -64,7 +80,7 @@ class WesBot:
                         self.log.warning("Failed to join lobby, trying again")
                     if i == reconnect_attempts - 1:
                         raise WesException("Did not manage to join lobby").addAction(WesException.FATAL)
-
+                self.lobby.stats.addConnectTime()
             self.mainLoop()
         except WesException as e:
             self.log.error(e.__str__())
@@ -76,7 +92,6 @@ class WesBot:
                     self.signal_actions.add(WesException.QUIT)
                     self.log.error("Fatal error")
                 elif act == WesException.ASSERT:
-                    self.signal_actions.add(WesException.QUIT)
                     self.log.error("Assertion failed")
                 self.signal_actions.add(act)
 
@@ -120,7 +135,11 @@ class WesBot:
                 if len(irc_parts) > 2 and irc_parts[1] == "PRIVMSG":
                     self.commandHandler.onIrcMessage(irc_response.strip())
             if cfg.wesEnabled:
-                self.handleWesResponse()
+                for i in range(16):
+                    hadResponse = self.handleWesResponse()
+                    if not hadResponse:
+                        break
+                self.lobby.stats.tick()
             self.quitIfDisabled()
 
     def quitIfDisabled(self):
@@ -134,6 +153,8 @@ class WesBot:
         self.cleanupIrc()
 
     def cleanupWes(self):
+        # TODO save stats
+        self.lobby.reset()
         if self.wesSock:
             self.wesSock.shutdown()
             self.wesSock = None
