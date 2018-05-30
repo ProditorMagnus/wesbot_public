@@ -50,7 +50,7 @@ class WesException(Exception):
         return self
 
     @staticmethod
-    def ensure(condition: bool, message: str = "", reconnect=True):
+    def ensure(condition: bool, message: str = "", reconnect=False):
         if not condition:
             if reconnect:
                 raise WesException(message).addAction(WesException.ASSERT).reconnectWes()
@@ -84,7 +84,7 @@ class Game:
 
 class GameHolder:
     _gameList: List[Game]
-    _gameMap: Dict[int, Game]  # game id -> game
+    _gameMap: Dict[int, Game]  # game id -> game # TODO check if this gets too large and needs to be cleared
 
     def __init__(self, main: 'WesBot', lobby: 'LobbyHolder'):
         self.lobby = lobby
@@ -99,6 +99,7 @@ class GameHolder:
         self.main.gameLog.info("Saved initial game %s(%s) to last index %s", g.name, g.id, len(self._gameList) - 1)
 
     def removeGame(self, index):
+        self.main.gameLog.debug("Deleting game from index %s", index)
         WesException.ensure(len(self._gameList) > index)
         pop: Game = self._gameList.pop(index)
         WesException.ensure(pop.id in self._gameMap,
@@ -136,7 +137,6 @@ class User:
         self.name = node.get_text_val("name")
         self.registered = node.get_text_val("registered") == "yes"
         self.status = node.get_text_val("status")
-        self.online = None
 
     def debug(self):
         # return "User(" + self.name + ", registered=" + str(self.registered) + ")"
@@ -161,55 +161,46 @@ class UserHolder:
         self.main.userLog.info("Initialized UserHolder")
 
     def addInitialUser(self, user: User):
-        user.online = True
         self._users[user.name] = user
         self._userList.append(user)
         self.main.userLog.info("Saved initial user %s to last index %s", user.name, len(self._userList) - 1)
-        self.lobby.stats.onUserAdd(user.name)
+        self.lobby.stats.onUserAdd(user.name, "Initial")
 
-    # def addIfAbsent(self, user):
-    #     if user.name in self._users:
-    #         # print("user",user.name,"is already in userholder")
-    #         return
-    #     self.add(user)
-
-    def insertUser(self, user: User, index):
+    def insertUser(self, user: User, index, comment=""):
+        self.main.userLog.debug("Saving user %s to index %s, current last index %s", user.name, index,
+                                len(self._userList) - 1)
         WesException.ensure(index <= len(self._userList),
                             "index ({}) <= len(self._userList) ({})".format(index, len(self._userList)))
         self._userList.insert(index, user)
         self._users[user.name] = user
-        self.main.userLog.info("Saved user %s to index %s", user.name, index)
-        self.lobby.stats.onUserAdd(user.name)
+        self.lobby.stats.onUserAdd(user.name, comment)
+        self.main.userLog.info("Saved user %s to index %s, current last index %s", user.name, index,
+                               len(self._userList) - 1)
 
-    # def getI(self, index: int) -> User:
-    #     WesException.ensure(len(self._usersList) > index, "User list {} has no index {}"
-    #                         .format(str(self._usersList), index))
-    #     return self._users.get(self._usersList[index].name)
+    def getI(self, index: int) -> User:
+        WesException.ensure(len(self._userList) > index, "User list {} has no index {}"
+                            .format(str(self._userList), index))
+        return self._userList[index]
 
     def get(self, name: str) -> User:
+        name = name.strip()
         WesException.ensure(name in self._users, str(self._users))
         return self._users.get(name)
 
-    def deleteI(self, index):
+    def deleteI(self, index, comment=""):
+        self.main.userLog.debug("Deleting user from index %s, current last index %s", index, len(self._userList)-1)
         WesException.ensure(len(self._userList) > index, "User list {} with len {} has no index {}"
                             .format(str(self._userList),
                                     len(self._userList), index))
         u: User = self._userList.pop(index)
-        self.main.userLog.info("Deleted user %s from index %s", u.name, index)
-        self.lobby.stats.onUserRemove(u.name)
+        self.lobby.stats.onUserRemove(u.name, comment)
+        self.main.userLog.info("Deleted user %s from index %s, current last index %s", u.name, index, len(self._userList)-1)
 
-    # def delete(self, name):
-    #     self.main.log.warn("maybe this function delete in UserHolder should never be used")
-    #     WesException.ensure(name in self._users, str(self._users))
-    #     del self._users[name]
-
-    def isRegistered(self, name) -> bool:
+    def isRegistered(self, name: str) -> bool:
+        name = name.strip()
         if name not in self._users:
             return False
         return self._users[name].registered
-
-    # def printUsers(self):
-    #     self.main.log.info("shared users", self._users, self._usersList)
 
     def getOnlineUsers(self) -> List[User]:
         return self._userList
@@ -279,18 +270,22 @@ class StatsHolder:
         return str(datetime.timedelta(seconds=time.time() - self.connectTimes[-1]))
 
     def onUserRemove(self, name, comment=""):
+        if comment is None:
+            return
         e = UserEvent(time.time(), "-", name, comment)
         self.userEventsView[name].append(e)
         self.userEvents.append(e)
 
     def onUserAdd(self, name, comment=""):
+        if comment is None:
+            return
         e = UserEvent(time.time(), "+", name, comment)
         self.userEventsView[name].append(e)
         self.userEvents.append(e)
 
     def getUserStats(self, name: str) -> str:
-        # TODO load older data from file
         name = name.strip()
+        self.loadUserEvents(name)
         if name not in self.userEventsView:
             return "No stats found for '{}'".format(name)
         d = self.userEventsView[name]
@@ -314,6 +309,8 @@ class StatsHolder:
                     latestJoin = e.time
             if e.event == "-":
                 count -= 1
+                if e.comment == "onQuit":  # Everyone is considered offline while bot is offline
+                    count = 0
                 if count == 1:
                     continue
                 if count == 0:
@@ -401,6 +398,32 @@ class StatsHolder:
             # if os.path.getsize(filename) > 1 * 1000 * 1000:
             #     pass
         self.main.log.debug("Users saved")
+
+    def loadUserEvents(self, name):
+        filename = "user_events/{}/{}.log".format(name, name)
+        if not os.path.isfile(filename):
+            return
+        self.log.debug("Loading user events for {}".format(name))
+        loadedEvents = []
+        firstAvailableTime = time.time()
+        if len(self.userEventsView[name]) > 0:
+            firstAvailableTime = self.userEventsView[name][0].time
+        with open(filename, "r", encoding="utf8") as f:
+            for line in f:
+                e = UserEvent.fromJSON(line)
+                if e.time < firstAvailableTime:
+                    loadedEvents.append(e)
+        self.log.debug("Loaded {} user events for {}".format(len(loadedEvents), name))
+        if len(loadedEvents) == 0:
+            return
+        self.userEventsView[name].extend(loadedEvents)
+        self.log.debug("First extend")
+        self.userEventsView[name].sort(key=lambda e: e.time)
+        self.log.debug("First sort")
+        self.userEvents.extend(loadedEvents)
+        self.log.debug("Second extend")
+        self.userEvents.sort(key=lambda e: e.time)
+        self.log.debug("Second sort")
 
 
 class LobbyHolder:

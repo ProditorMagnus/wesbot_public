@@ -14,7 +14,7 @@ from rewritebotSCHEMA import WesException
 
 
 class WesSock:
-    LOG_RECEIVED = False
+    LOG_RECEIVED = True
     socketTimeout = 1
     sock: socket.socket
 
@@ -26,7 +26,7 @@ class WesSock:
         self.log_sent = logging.getLogger("CON sent")
         self.log_rec = logging.getLogger("CON rec")
         fh_send = logging.handlers.RotatingFileHandler("log/wesbot_sent.log", maxBytes=10 * 1024 * 1024, backupCount=2)
-        fh_rec = logging.handlers.RotatingFileHandler("log/wesbot_rec.log", maxBytes=10 * 1024 * 1024, backupCount=2)
+        fh_rec = logging.handlers.RotatingFileHandler("log/wesbot_rec.log", maxBytes=100 * 1024 * 1024, backupCount=2)
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         fh_send.setFormatter(formatter)
         fh_rec.setFormatter(formatter)

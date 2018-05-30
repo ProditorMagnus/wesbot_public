@@ -18,9 +18,10 @@ PERMISSION_PUBLIC = -1
 
 
 class Command:
-    def __init__(self, permission: int, command: 'function'):
+    def __init__(self, permission: int, command: 'function', description=""):
         self.command = command
         self.permission = permission
+        self.description = description
 
 
 class CommandHandler:
@@ -106,9 +107,10 @@ class CommandHandler:
             self.onCommand("help", sender, permission, origin)
         elif cfg.username in message and private:
             self.onCommand("help", sender, permission, origin)
-        elif private:
-            self.sendPrivately(sender, origin,
-                               "Message not recognized. You are {} with permission {}".format(sender, permission))
+        elif private and permission < PERMISSION_TRUSTED:
+            self.sendPrivately(
+                sender, origin, "Message not recognized. You are {} with permission {}. Try using {}help".format(
+                    sender, permission, self.prefix))
 
     def onCommand(self, message, sender, permission, origin):
         def reply(message):
@@ -124,67 +126,147 @@ class CommandHandler:
         self.log.debug("got command %s %s %s", command, "with args", args)
 
         def uptime():
+            """Tells how long bot has been running, and how long it has been online since wesnothd last sent illegal user info
+No arguments"""
             # TODO round times
             reply("Time since first connect: {}, time since last connect: {}"
                   .format(self.main.lobby.stats.getTimeSinceFirstConnect(),
                           self.main.lobby.stats.getTimeSinceLastConnect()))
 
         def userstats():
+            """Finds when and for how long user $1 has been online
+$1 = name of user to query"""
             # TODO round times
             reply(self.main.lobby.stats.getUserStats(args))
 
         def save():
+            """Debug command to trigger writing user events to file"""
             self.main.lobby.stats.saveUsers()
             reply("Users saved")
 
         def gcUsers():
+            """Debug command to delete user events of users not seen in last 10 min"""
             self.main.lobby.stats.deleteOldData(datetime.datetime.now(), datetime.timedelta(minutes=10))
             reply("Users garbage collection done")
 
         def gitPull():
+            """Command to run git pull"""
             process = subprocess.Popen(["git", "pull"], stdout=subprocess.PIPE)
             output = process.communicate()[0]
             if isinstance(output, bytes):
                 output = output.decode("utf8")
             reply("git pull: {}".format(output))
 
-        # TODO not recognized is also displayed
+        def stats():
+            """Command to get basic lobby statistics. Might not work correctly currently"""
+            reply("Game stats: {}, User stats: {}".format(self.main.lobby.games.getStats(),
+                                                          self.main.lobby.users.getStats()))
+
+        def say():
+            """Say $1 publicly, usually in lobby. Doesnt seem to work from in game in 1.14
+$1 = message"""
+            # default is say on lobby, even when user is currently in game
+            # TODO not default anymore, seems message is just ignored
+            if len(args) == 0:
+                reply("message is required")
+            else:
+                self.sayOnWesnoth(args)
+
+        def m():
+            """Send private message $2- to user $1. Trusted users can only message Trusted+ users.
+$1 = receiver user name
+$2- = message"""
+            if " " not in args:
+                reply("Too few arguments")
+                return
+            receiver, msg = args.split(" ", 1)
+            receiver = receiver.strip()
+            if permission > PERMISSION_ADMIN or receiver in self.main.cfg.botTrustedNames or receiver in self.wesMasters:
+                if receiver in self.main.lobby.users.getOnlineNames():
+                    self.sendPrivately(receiver, "wes", msg)
+                else:
+                    reply("User {} is not online".format(receiver))
+            else:
+                reply("Currently trusted users can only message to another trusted users and admins")
+
+        def alias():
+            if " " not in args:
+                reply("Not enough arguments")
+                return
+            parts = args.split(" ", 1)
+            if len(parts[0]) > 0 and len(parts[1]) > 0 and parts[0] not in commands and parts[1] in commands:
+                commands[parts[0]] = commands[parts[1]]
+                reply("Alias added")
+            else:
+                reply("Alias not added")
+
+        def q():
+            """Quits bot"""
+            raise WesException("quit command used").quit()
+
+        def restart():
+            """Restarts bot"""
+            raise WesException("restart command used").restart()
+
+        def commandsHelp():
+            """List of available commands, or help message of command $1
+[$1 = command name]"""
+            if args in commands:
+                reply("Command {} for permission {}+ (yours: {}): {}"
+                      "".format(args, commands[args].permission, permission, commands[args].command.__doc__))
+            else:
+                publicCommands = []
+                trustedCommands = []
+                adminCommands = []
+                otherCommands = []
+                for name, command in commands.items():
+                    if command.permission == PERMISSION_PUBLIC:
+                        publicCommands.append(name)
+                    elif command.permission == PERMISSION_TRUSTED:
+                        trustedCommands.append(name)
+                    elif command.permission == PERMISSION_ADMIN:
+                        adminCommands.append(name)
+                    else:
+                        otherCommands.append(name)
+                reply("Available commands for PUBLIC: {}, TRUSTED: {}, ADMIN: {}. "
+                      "Use <{}commands command> for command description"
+                      .format(sorted(publicCommands), sorted(trustedCommands), sorted(adminCommands), self.prefix))
+
         commands = {
-            "uptime": (PERMISSION_PUBLIC, uptime),
-            "user": (PERMISSION_TRUSTED, userstats),
-            "save": (PERMISSION_ADMIN, save),
-            "gc": (PERMISSION_ADMIN, gcUsers),
-            "pull": (PERMISSION_ADMIN, gitPull)
+            "uptime": Command(PERMISSION_PUBLIC, uptime),
+            "users": Command(PERMISSION_PUBLIC, lambda: reply(self.main.lobby.users.getUsers())),
+            "games": Command(PERMISSION_PUBLIC, lambda: reply(self.main.lobby.games.getGames())),
+            "online": Command(PERMISSION_PUBLIC, lambda: reply(self.main.lobby.users.getOnlineUsers())),
+            "stats": Command(PERMISSION_PUBLIC, stats),
+            "help": Command(PERMISSION_PUBLIC, lambda: reply(self.HELP_MESSAGE)),
+            "user": Command(PERMISSION_TRUSTED, userstats),
+            "save": Command(PERMISSION_ADMIN, save),
+            "gc": Command(PERMISSION_ADMIN, gcUsers),
+            "pull": Command(PERMISSION_ADMIN, gitPull),
+            "say": Command(PERMISSION_ADMIN, say),
+            "m": Command(PERMISSION_TRUSTED, m),
+            "alias": Command(PERMISSION_ADMIN, alias),
+            "q": Command(PERMISSION_ADMIN, q),
+            "restart": Command(PERMISSION_ADMIN, restart),
+            "commands": Command(PERMISSION_PUBLIC, commandsHelp)
         }
 
-        if command in commands and permission > commands[command][0]:
-            commands[command][1]()
+        if command in commands and permission > commands[command].permission:
+            commands[command].command()
 
-        if command == "join" and permission > PERMISSION_TRUSTED:
+        if command == "join" and permission > PERMISSION_ADMIN:
             self.irc.join(args)
-        elif command == "part" and permission > PERMISSION_TRUSTED:
+        elif command == "part" and permission > PERMISSION_ADMIN:
             self.irc.part(args)
-        elif command == "help":
-            self.sendPrivately(sender, origin, self.HELP_MESSAGE)
-        elif command == "quit" and permission > PERMISSION_ADMIN:
-            raise WesException("quit command used").quit()
         elif command == "quitwes" and permission > PERMISSION_ADMIN:
             raise WesException("quitwes command used").addAction(WesException.QUIT_WES)
         elif command == "quitirc" and permission > PERMISSION_ADMIN:
             raise WesException("quitirc command used").addAction(WesException.QUIT_IRC)
-        elif command == "restart" and permission > PERMISSION_ADMIN:
-            raise WesException("restart command used").restart()
         elif command == "ircreconnect" and permission > PERMISSION_ADMIN:
             raise WesException("ircreconnect command used").reconnectIrc()
         elif command == "wesreconnect" and permission > PERMISSION_ADMIN:
             raise WesException("wesreconnect command used").reconnectWes()
-        elif command == "users" and permission > PERMISSION_TRUSTED:
-            reply(self.main.lobby.users.getUsers())
-        elif command == "games" and permission > PERMISSION_TRUSTED:
-            reply(self.main.lobby.games.getGames())
-        elif command == "online" and permission > PERMISSION_TRUSTED:
-            reply(self.main.lobby.users.getOnlineUsers())
-        elif command == "follow" and permission > PERMISSION_TRUSTED:
+        elif command == "follow" and permission > PERMISSION_ADMIN:
             if not args or args == "":
                 args = sender
             try:
@@ -194,15 +276,7 @@ class CommandHandler:
                 if e.action != [WesException.ASSERT]:
                     raise e
                 reply("User {} not found".format(args))
-
-        elif command == "say" and permission > PERMISSION_TRUSTED:
-            # default is say on lobby, even when user is currently in game
-            # TODO not default anymore, seems message is just ignored
-            self.sayOnWesnoth(args)
-        elif command == "m" and permission > PERMISSION_TRUSTED:
-            receiver, msg = args.split(" ", 1)
-            self.sendPrivately(receiver, "wes", msg)
-        elif command == "control" and permission > PERMISSION_TRUSTED:
+        elif command == "control" and permission > PERMISSION_ADMIN:
             parts = args.split(" ", 1)
             if len(parts) == 2:
                 side, target = parts[0], parts[1]
@@ -213,14 +287,11 @@ side="%s"
 [/change_controller]""" % (target, side))
             else:
                 reply("control needs to have two arguments")
-        elif command == "leave" and permission > PERMISSION_TRUSTED:
+        elif command == "leave" and permission > PERMISSION_ADMIN:
             self.wes.send_wml_string("[leave_game]\n[/leave_game]")
         elif command == "trust" and permission > PERMISSION_ADMIN:
             self.main.cfg.botTrustedNames.append(args.strip())
             reply("Added '{}' to trusted names. Current list: {}".format(args.strip(), self.main.cfg.botTrustedNames))
-        elif command == "stats":
-            reply("Game stats: {}, User stats: {}".format(self.main.lobby.games.getStats(),
-                                                          self.main.lobby.users.getStats()))
         else:
             if command not in commands:
                 reply("Command {} not recognized".format(command))

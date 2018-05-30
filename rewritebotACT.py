@@ -78,13 +78,25 @@ class Actor:
 
     def actOnGamelistDiff(self, node: wmlparser.TagNode):
         self.main.log.log(2, "in actOnGamelistDiff with %s", node.get_name())
+        usersToRemove = set()
+        usersToAdd = set()
+        for child in node.get_all(tag="delete_child"):
+            index = int(child.get_text_val("index"))
+            if len(child.get_all(tag="user")) == 1:
+                self.main.log.log(5, "user %s should be removed" % index)
+                usersToRemove.add(self.main.lobby.users.getI(index).name)
+
         for child in node.get_all(tag="insert_child"):
             index = int(child.get_text_val("index"))
             self.main.log.log(3, "%s %s", child.get_name(), index)
             for child in child.get_all(tag="user"):
                 u = User(child)
                 self.main.log.log(5, "user %s should be inserted to %s", u.name, index)
-                self.main.lobby.users.insertUser(u, index)
+                usersToAdd.add(u.name)
+                if u.name in usersToRemove:
+                    self.main.lobby.users.insertUser(u, index, None)
+                else:
+                    self.main.lobby.users.insertUser(u, index)
             for child in child.get_all(tag="game"):
                 g = Game(child)
                 self.main.log.log(5, "game %s(%s) should be inserted to %s", g.name, g.id, index)
@@ -95,7 +107,10 @@ class Actor:
             self.main.log.log(3, "%s %s", child.get_name(), index)
             if len(child.get_all(tag="user")) == 1:
                 self.main.log.log(5, "user %s should be removed" % index)
-                self.main.lobby.users.deleteI(index)
+                if self.main.lobby.users.getI(index).name in usersToAdd:
+                    self.main.lobby.users.deleteI(index, None)
+                else:
+                    self.main.lobby.users.deleteI(index)
             elif len(child.get_all(tag="game")) == 1:
                 self.main.log.log(5, "game %s should be removed" % index)
                 self.main.lobby.games.removeGame(index)
