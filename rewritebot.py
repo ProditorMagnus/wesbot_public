@@ -83,7 +83,6 @@ class WesBot:
                 self.lobby.stats.addConnectTime()
             self.mainLoop()
         except WesException as e:
-            self.log.error(e.__str__())
             self.log.debug("actions %s", e.action)
             for act in e.action:
                 if act == WesException.RESTART:

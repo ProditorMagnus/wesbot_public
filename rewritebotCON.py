@@ -138,7 +138,7 @@ class WesSock:
 
             bytes_wanted = int.from_bytes(chunk, byteorder="big")
             while bytes_recd != bytes_wanted:
-                chunk = self.sock.recv(min(1024, bytes_wanted - bytes_recd))
+                chunk = self.sock.recv(min(4096, bytes_wanted - bytes_recd))
                 if not chunk:
                     self.main.log.warn("chunk not")
                     break
@@ -147,8 +147,14 @@ class WesSock:
                 chunks.append(chunk)
 
                 bytes_recd = bytes_recd + len(chunk)
-
-            result: bytes = gzip.decompress(b''.join(chunks))
+            try:
+                result: bytes = gzip.decompress(b''.join(chunks))
+            except OSError:
+                self.main.log.error("Problem when decompressing received chunks")
+                self.main.log.error("Bytes wanted {}".format(bytes_wanted))
+                self.main.log.error("Bytes read {}".format(bytes_recd))
+                self.main.log.error(b''.join(chunks))
+                raise
             if len(result) == 0:
                 raise WesException("Received empty, so quitting").addAction(WesException.QUIT_WES)
             if self.LOG_RECEIVED:

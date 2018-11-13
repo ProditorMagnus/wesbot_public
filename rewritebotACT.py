@@ -148,15 +148,15 @@ class Actor:
             self.main.lobby.games.addInitialGame(Game(game))
 
     def actOnWhisper(self, node: wmlparser.TagNode):
-        self.main.log.debug("on whisper %s", node.debug())
+        # self.main.log.debug("on whisper %s", node.debug())
         sender = node.get_text_val("sender")
         message = node.get_text_val("message")
-        self.main.log.debug("%s %s %s", sender, "~", message)
+        # self.main.log.debug("%s %s %s", sender, "~", message)
         whisper = True
         self.cmd.onWesMessage(message, sender, self.main.lobby.users.isRegistered(sender), whisper)
 
     def actOnMessage(self, node: wmlparser.TagNode):
-        self.main.log.debug("on message %s", node.debug())
+        # self.main.log.debug("on message %s", node.debug())
         sender = node.get_text_val("sender")
         message = node.get_text_val("message")
         if sender == "server":
@@ -164,7 +164,7 @@ class Actor:
         if not sender or not message:
             self.main.log.error("sender or message is None in actOnMessage")
             return
-        self.main.log.debug("%s %s %s", sender, ">", message)
+        # self.main.log.debug("%s %s %s", sender, ">", message)
         self.cmd.onWesMessage(message, sender, self.main.lobby.users.isRegistered(sender))
 
     def actOnSpeak(self, node: wmlparser.TagNode):

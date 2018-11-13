@@ -4,6 +4,7 @@ import logging.handlers
 import random
 import re
 import subprocess
+from typing import Dict, Any, Callable
 
 from rewritebotSCHEMA import WesException
 import typing
@@ -18,14 +19,20 @@ PERMISSION_PUBLIC = -1
 
 
 class Command:
-    def __init__(self, permission: int, command: 'function', description=""):
+    command: Callable  # reply, args, permission, sender
+
+    def __init__(self, permission: int, command: 'Callable',
+                 description=""):
         self.command = command
         self.permission = permission
         self.description = description
 
 
 class CommandHandler:
+    commands: Dict[str, Command]
+
     def __init__(self, main: 'WesBot', wesMasters, ircMasters):
+        self.commands = {}
         self.prefix = "!"
         self.HELP_MESSAGE = "This is IRC-lobby bot written in Python 3.6 by Ravana. " \
                             "Forum thread: https://forums.wesnoth.org/viewtopic.php?f=10&t=43965. " \
@@ -41,6 +48,7 @@ class CommandHandler:
         fh.setFormatter(formatter)
         self.log.setLevel(logging.DEBUG)
         self.log.addHandler(fh)
+        self.initializeCommands()
 
     def init(self):
         self.wes = self.main.wesSock
@@ -72,8 +80,8 @@ class CommandHandler:
     def onWesMessage(self, message, sender, registered=False, whisper=False):
         cfg = self.main.cfg
         # possibly server does not use registrations
-        self.log.debug("with wes message in commandhandler, sender=%s, message=%s, registered=%s, whisper=%s", sender,
-                       message, registered, whisper)
+        self.log.log(6, "with wes message in commandhandler, sender=%s, message=%s, registered=%s, whisper=%s", sender,
+                     message, registered, whisper)
         permission = 0
         if cfg.serverName == "localhost" and sender in self.wesMasters:
             permission = PERMISSION_ADMIN + 1
@@ -91,12 +99,13 @@ class CommandHandler:
         if private:
             self.logOnIrc("<{}> -> <{}>: {}".format(sender, cfg.username, message))
         elif origin == "wes":
-            self.main.messageLog.info("<%s> %s | private=%s", sender, message, private)
+            self.main.messageLog.info("<%s> %s", sender, message)
 
         self.log.info("Received generic message with info: sender=%s, message=%s, permission=%s, type=%s, private=%s",
                       sender, message, permission, origin, private)
         if sender == "server" and origin == "wes":
             self.onServerMessage(message, private)
+            return
         if permission < PERMISSION_TRUSTED and not private:
             if cfg.username in message:
                 self.onCommand("help", sender, permission, origin)
@@ -125,134 +134,8 @@ class CommandHandler:
             args = ""
         self.log.debug("got command %s %s %s", command, "with args", args)
 
-        def uptime():
-            """Tells how long bot has been running, and how long it has been online since wesnothd last sent illegal user info
-No arguments"""
-            # TODO round times
-            reply("Time since first connect: {}, time since last connect: {}"
-                  .format(self.main.lobby.stats.getTimeSinceFirstConnect(),
-                          self.main.lobby.stats.getTimeSinceLastConnect()))
-
-        def userstats():
-            """Finds when and for how long user $1 has been online
-$1 = name of user to query"""
-            # TODO round times
-            reply(self.main.lobby.stats.getUserStats(args))
-
-        def save():
-            """Debug command to trigger writing user events to file"""
-            self.main.lobby.stats.saveUsers()
-            reply("Users saved")
-
-        def gcUsers():
-            """Debug command to delete user events of users not seen in last 10 min"""
-            self.main.lobby.stats.deleteOldData(datetime.datetime.now(), datetime.timedelta(minutes=10))
-            reply("Users garbage collection done")
-
-        def gitPull():
-            """Command to run git pull"""
-            process = subprocess.Popen(["git", "pull"], stdout=subprocess.PIPE)
-            output = process.communicate()[0]
-            if isinstance(output, bytes):
-                output = output.decode("utf8")
-            reply("git pull: {}".format(output))
-
-        def stats():
-            """Command to get basic lobby statistics. Might not work correctly currently"""
-            reply("Game stats: {}, User stats: {}".format(self.main.lobby.games.getStats(),
-                                                          self.main.lobby.users.getStats()))
-
-        def say():
-            """Say $1 publicly, usually in lobby. Doesnt seem to work from in game in 1.14
-$1 = message"""
-            # default is say on lobby, even when user is currently in game
-            # TODO not default anymore, seems message is just ignored
-            if len(args) == 0:
-                reply("message is required")
-            else:
-                self.sayOnWesnoth(args)
-
-        def m():
-            """Send private message $2- to user $1. Trusted users can only message Trusted+ users.
-$1 = receiver user name
-$2- = message"""
-            if " " not in args:
-                reply("Too few arguments")
-                return
-            receiver, msg = args.split(" ", 1)
-            receiver = receiver.strip()
-            if permission > PERMISSION_ADMIN or receiver in self.main.cfg.botTrustedNames or receiver in self.wesMasters:
-                if receiver in self.main.lobby.users.getOnlineNames():
-                    self.sendPrivately(receiver, "wes", msg)
-                else:
-                    reply("User {} is not online".format(receiver))
-            else:
-                reply("Currently trusted users can only message to another trusted users and admins")
-
-        def alias():
-            if " " not in args:
-                reply("Not enough arguments")
-                return
-            parts = args.split(" ", 1)
-            if len(parts[0]) > 0 and len(parts[1]) > 0 and parts[0] not in commands and parts[1] in commands:
-                commands[parts[0]] = commands[parts[1]]
-                reply("Alias added")
-            else:
-                reply("Alias not added")
-
-        def q():
-            """Quits bot"""
-            raise WesException("quit command used").quit()
-
-        def restart():
-            """Restarts bot"""
-            raise WesException("restart command used").restart()
-
-        def commandsHelp():
-            """List of available commands, or help message of command $1
-[$1 = command name]"""
-            if args in commands:
-                reply("Command {} for permission {}+ (yours: {}): {}"
-                      "".format(args, commands[args].permission, permission, commands[args].command.__doc__))
-            else:
-                publicCommands = []
-                trustedCommands = []
-                adminCommands = []
-                otherCommands = []
-                for name, command in commands.items():
-                    if command.permission == PERMISSION_PUBLIC:
-                        publicCommands.append(name)
-                    elif command.permission == PERMISSION_TRUSTED:
-                        trustedCommands.append(name)
-                    elif command.permission == PERMISSION_ADMIN:
-                        adminCommands.append(name)
-                    else:
-                        otherCommands.append(name)
-                reply("Available commands for PUBLIC: {}, TRUSTED: {}, ADMIN: {}. "
-                      "Use <{}commands command> for command description"
-                      .format(sorted(publicCommands), sorted(trustedCommands), sorted(adminCommands), self.prefix))
-
-        commands = {
-            "uptime": Command(PERMISSION_PUBLIC, uptime),
-            "users": Command(PERMISSION_PUBLIC, lambda: reply(self.main.lobby.users.getUsers())),
-            "games": Command(PERMISSION_PUBLIC, lambda: reply(self.main.lobby.games.getGames())),
-            "online": Command(PERMISSION_PUBLIC, lambda: reply(self.main.lobby.users.getOnlineUsers())),
-            "stats": Command(PERMISSION_PUBLIC, stats),
-            "help": Command(PERMISSION_PUBLIC, lambda: reply(self.HELP_MESSAGE)),
-            "user": Command(PERMISSION_TRUSTED, userstats),
-            "save": Command(PERMISSION_ADMIN, save),
-            "gc": Command(PERMISSION_ADMIN, gcUsers),
-            "pull": Command(PERMISSION_ADMIN, gitPull),
-            "say": Command(PERMISSION_ADMIN, say),
-            "m": Command(PERMISSION_TRUSTED, m),
-            "alias": Command(PERMISSION_ADMIN, alias),
-            "q": Command(PERMISSION_ADMIN, q),
-            "restart": Command(PERMISSION_ADMIN, restart),
-            "commands": Command(PERMISSION_PUBLIC, commandsHelp)
-        }
-
-        if command in commands and permission > commands[command].permission:
-            commands[command].command()
+        if command in self.commands and permission > self.commands[command].permission:
+            self.commands[command].command(reply=reply, args=args, permission=permission, sender=sender)
 
         if command == "join" and permission > PERMISSION_ADMIN:
             self.irc.join(args)
@@ -293,8 +176,150 @@ side="%s"
             self.main.cfg.botTrustedNames.append(args.strip())
             reply("Added '{}' to trusted names. Current list: {}".format(args.strip(), self.main.cfg.botTrustedNames))
         else:
-            if command not in commands:
+            if command not in self.commands:
                 reply("Command {} not recognized".format(command))
+
+    def initializeCommands(self):
+        # {reply: reply, args: args, permission: permission, sender: sender}
+        def raw(**kwargs):
+            try:
+                with open("raw.cfg", "r", encoding="utf8") as f:
+                    self.wes.send_wml_string("".join(f.readlines()))
+            except Exception as e:
+                self.main.log.warning("raw failed", e)
+
+        def uptime(**kwargs):
+            """Tells how long bot has been running, and how long it has been online since wesnothd last sent illegal user info
+No arguments"""
+            # TODO round times
+            kwargs["reply"]("Time since first connect: {}, time since last connect: {}"
+                            .format(self.main.lobby.stats.getTimeSinceFirstConnect(),
+                                    self.main.lobby.stats.getTimeSinceLastConnect()))
+
+        def userstats(**kwargs):
+            """Finds when and for how long user $1 has been online
+$1 = name of user to query"""
+            # TODO round times
+            kwargs["reply"](self.main.lobby.stats.getUserStats(kwargs["args"]))
+
+        def save(**kwargs):
+            """Debug command to trigger writing user events to file"""
+            self.main.lobby.stats.saveUsers()
+            kwargs["reply"]("Users saved")
+
+        def gcUsers(**kwargs):
+            """Debug command to delete user events of users not seen in last 10 min"""
+            self.main.lobby.stats.deleteOldData(datetime.datetime.now(), datetime.timedelta(minutes=10))
+            kwargs["reply"]("Users garbage collection done")
+
+        def gitPull(**kwargs):
+            """Command to run git pull"""
+            process = subprocess.Popen(["git", "pull"], stdout=subprocess.PIPE)
+            output = process.communicate()[0]
+            if isinstance(output, bytes):
+                output = output.decode("utf8")
+            kwargs["reply"]("git pull: {}".format(output))
+
+        def stats(**kwargs):
+            """Command to get basic lobby statistics. Might not work correctly currently"""
+            kwargs["reply"]("Game stats: {}, User stats: {}".format(self.main.lobby.games.getStats(),
+                                                                    self.main.lobby.users.getStats()))
+
+        def say(**kwargs):
+            """Say $1 publicly, usually in lobby. Doesnt seem to work from in game in 1.14
+$1 = message"""
+            # default is say on lobby, even when user is currently in game
+            # TODO not default anymore, seems message is just ignored
+            if len(kwargs["args"]) == 0:
+                kwargs["reply"]("message is required")
+            else:
+                self.sayOnWesnoth(kwargs["args"])
+
+        def m(**kwargs):
+            """Send private message $2- to user $1. Trusted users can only message Trusted+ users.
+$1 = receiver user name
+$2- = message"""
+            if " " not in kwargs["args"]:
+                kwargs["reply"]("Too few arguments")
+                return
+            receiver, msg = kwargs["args"].split(" ", 1)
+            receiver = receiver.strip()
+            if kwargs[
+                "permission"] > PERMISSION_ADMIN or receiver in self.main.cfg.botTrustedNames or receiver in self.wesMasters:
+                if receiver in self.main.lobby.users.getOnlineNames():
+                    self.sendPrivately(receiver, "wes", msg)
+                else:
+                    kwargs["reply"]("User {} is not online".format(receiver))
+            else:
+                kwargs["reply"]("Currently trusted users can only message to another trusted users and admins")
+
+        def alias(**kwargs):
+            """Creates alias $1 which points to command $2"""
+            if " " not in kwargs["args"]:
+                kwargs["reply"]("Not enough arguments")
+                return
+            parts = kwargs["args"].split(" ", 1)
+            if len(parts[0]) > 0 and len(parts[1]) > 0 and parts[0] not in self.commands and parts[1] in self.commands:
+                self.commands[parts[0]] = self.commands[parts[1]]
+                kwargs["reply"]("Alias added")
+            else:
+                kwargs["reply"]("Alias not added")
+
+        def q(**kwargs):
+            """Quits bot"""
+            kwargs["reply"]("quitting")
+            raise WesException("quit command used").quit()
+
+        def restart(**kwargs):
+            """Restarts bot"""
+            kwargs["reply"]("restarting")
+            raise WesException("restart command used").restart()
+
+        def commandsHelp(**kwargs):
+            """List of available commands, or help message of command $1
+[$1 = command name]"""
+            if kwargs["args"] in self.commands:
+                kwargs["reply"]("Command {} for permission {}+ (yours: {}): {}".format(kwargs["args"], self.commands[
+                    kwargs["args"]].permission, kwargs["permission"], self.commands[kwargs["args"]].command.__doc__))
+            else:
+                publicCommands = []
+                trustedCommands = []
+                adminCommands = []
+                otherCommands = []
+                for name, command in self.commands.items():
+                    if command.permission == PERMISSION_PUBLIC:
+                        publicCommands.append(name)
+                    elif command.permission == PERMISSION_TRUSTED:
+                        trustedCommands.append(name)
+                    elif command.permission == PERMISSION_ADMIN:
+                        adminCommands.append(name)
+                    else:
+                        otherCommands.append(name)
+                kwargs["reply"]("Available commands for PUBLIC: {}, TRUSTED: {}, ADMIN: {}. "
+                                "Use <{}commands command> for command description"
+                                .format(sorted(publicCommands), sorted(trustedCommands), sorted(adminCommands),
+                                        self.prefix))
+
+        self.commands = {
+            "raw": Command(PERMISSION_ADMIN, raw),
+            "uptime": Command(PERMISSION_PUBLIC, uptime),
+            "users": Command(PERMISSION_PUBLIC, lambda **kwargs: kwargs["reply"](self.main.lobby.users.getUsers())),
+            "games": Command(PERMISSION_PUBLIC, lambda **kwargs: kwargs["reply"](self.main.lobby.games.getGames())),
+            "online": Command(PERMISSION_PUBLIC,
+                              lambda **kwargs: kwargs["reply"](self.main.lobby.users.getOnlineUsers())),
+            "stats": Command(PERMISSION_PUBLIC, stats),
+            "help": Command(PERMISSION_PUBLIC, lambda **kwargs: kwargs["reply"](self.HELP_MESSAGE)),
+            "user": Command(PERMISSION_TRUSTED, userstats),
+            "save": Command(PERMISSION_ADMIN, save),
+            "gc": Command(PERMISSION_ADMIN, gcUsers),
+            "pull": Command(PERMISSION_ADMIN, gitPull),
+            "say": Command(PERMISSION_ADMIN, say),
+            "m": Command(PERMISSION_TRUSTED, m),
+            "alias": Command(PERMISSION_ADMIN, alias),
+            "q": Command(PERMISSION_ADMIN, q),
+            "restart": Command(PERMISSION_ADMIN, restart),
+            "commands": Command(PERMISSION_PUBLIC, commandsHelp)
+        }
 
     def sayOnWesnoth(self, message, room=""):
         if type(message) != type(""):

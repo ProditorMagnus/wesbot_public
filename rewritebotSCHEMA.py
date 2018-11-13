@@ -112,6 +112,8 @@ class GameHolder:
         return self._gameList
 
     def insertGame(self, g: Game, index):
+        WesException.ensure(index <= len(self._gameList),
+                            "index ({}) <= len(self._gameList) ({})".format(index, len(self._gameList)))
         self._gameList.insert(index, g)
         self._gameMap[g.id] = g
         self.main.gameLog.info("Saved game %s(%s) to index %s", g.name, g.id, index)
@@ -188,13 +190,14 @@ class UserHolder:
         return self._users.get(name)
 
     def deleteI(self, index, comment=""):
-        self.main.userLog.debug("Deleting user from index %s, current last index %s", index, len(self._userList)-1)
+        self.main.userLog.debug("Deleting user from index %s, current last index %s", index, len(self._userList) - 1)
         WesException.ensure(len(self._userList) > index, "User list {} with len {} has no index {}"
                             .format(str(self._userList),
                                     len(self._userList), index))
         u: User = self._userList.pop(index)
         self.lobby.stats.onUserRemove(u.name, comment)
-        self.main.userLog.info("Deleted user %s from index %s, current last index %s", u.name, index, len(self._userList)-1)
+        self.main.userLog.info("Deleted user %s from index %s, current last index %s", u.name, index,
+                               len(self._userList) - 1)
 
     def isRegistered(self, name: str) -> bool:
         name = name.strip()
