@@ -7,6 +7,7 @@ if typing.TYPE_CHECKING:
     from rewritebot import WesBot
 from rewritebotSCHEMA import User, Game, WesException
 
+# TODO handle b'[message]\nmessage="Can\'t find \'Ravana\'."\nsender="server"\n[/message]\n'        about ping
 
 # like helper methods to get all tags with given path, or attributes
 # https://wiki.wesnoth.org/MultiplayerServerWML
@@ -160,6 +161,7 @@ class Actor:
         sender = node.get_text_val("sender")
         message = node.get_text_val("message")
         if sender == "server":
+            self.cmd.onServerMessage(message, False)  # TODO is private?
             return
         if not sender or not message:
             self.main.log.error("sender or message is None in actOnMessage")

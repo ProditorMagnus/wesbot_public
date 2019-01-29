@@ -139,6 +139,7 @@ class WesBot:
                     if not hadResponse:
                         break
                 self.lobby.stats.tick()
+                self.commandHandler.tick()
             self.quitIfDisabled()
 
     def quitIfDisabled(self):

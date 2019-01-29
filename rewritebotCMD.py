@@ -29,6 +29,7 @@ class Command:
 
 
 class CommandHandler:
+    pingUsers: Dict[str, typing.Tuple[int, datetime.datetime]]  # name -> (interval, last ping time)
     commands: Dict[str, Command]
 
     def __init__(self, main: 'WesBot', wesMasters, ircMasters):
@@ -49,6 +50,7 @@ class CommandHandler:
         self.log.setLevel(logging.DEBUG)
         self.log.addHandler(fh)
         self.initializeCommands()
+        self.pingUsers = {}
 
     def init(self):
         self.wes = self.main.wesSock
@@ -118,8 +120,8 @@ class CommandHandler:
             self.onCommand("help", sender, permission, origin)
         elif private and permission < PERMISSION_TRUSTED:
             self.sendPrivately(
-                sender, origin, "Message not recognized. You are {} with permission {}. Try using {}help".format(
-                    sender, permission, self.prefix))
+                sender, origin, "Message not recognized. You are {} with permission {}. Try using {}help and {}commands".format(
+                    sender, permission, self.prefix, self.prefix))
 
     def onCommand(self, message, sender, permission, origin):
         def reply(message):
@@ -244,12 +246,10 @@ $2- = message"""
                 return
             receiver, msg = kwargs["args"].split(" ", 1)
             receiver = receiver.strip()
-            if kwargs[
-                "permission"] > PERMISSION_ADMIN or receiver in self.main.cfg.botTrustedNames or receiver in self.wesMasters:
-                if receiver in self.main.lobby.users.getOnlineNames():
-                    self.sendPrivately(receiver, "wes", msg)
-                else:
-                    kwargs["reply"]("User {} is not online".format(receiver))
+            if kwargs["permission"] > PERMISSION_ADMIN \
+                    or receiver in self.main.cfg.botTrustedNames \
+                    or receiver in self.wesMasters:
+                self.sendPrivately(receiver, "wes", msg)
             else:
                 kwargs["reply"]("Currently trusted users can only message to another trusted users and admins")
 
@@ -300,6 +300,21 @@ $2- = message"""
                                 .format(sorted(publicCommands), sorted(trustedCommands), sorted(adminCommands),
                                         self.prefix))
 
+        def addPing(**kwargs):
+            """Sender will be sent "ping" private message every $1 minutes
+$1 = number, default 1. Use <=1 to remove ping, example 0"""
+            interval = 1
+            try:
+                interval = int(kwargs["args"])
+            except:
+                kwargs["reply"]("Invalid time format, using default")
+            if interval < 1:
+                del self.pingUsers[kwargs["sender"]]
+                kwargs["reply"]("You will not be pinged anymore")
+            else:
+                self.pingUsers[kwargs["sender"]] = (interval, datetime.datetime.now())
+                kwargs["reply"]("You will be pinged every {} minutes".format(interval))
+
         self.commands = {
             "raw": Command(PERMISSION_ADMIN, raw),
             "uptime": Command(PERMISSION_PUBLIC, uptime),
@@ -309,6 +324,7 @@ $2- = message"""
                               lambda **kwargs: kwargs["reply"](self.main.lobby.users.getOnlineUsers())),
             "stats": Command(PERMISSION_PUBLIC, stats),
             "help": Command(PERMISSION_PUBLIC, lambda **kwargs: kwargs["reply"](self.HELP_MESSAGE)),
+            "ping": Command(PERMISSION_PUBLIC, addPing),
             "user": Command(PERMISSION_TRUSTED, userstats),
             "save": Command(PERMISSION_ADMIN, save),
             "gc": Command(PERMISSION_ADMIN, gcUsers),
@@ -351,6 +367,21 @@ $2- = message"""
             else:
                 self.log.error("logOnIrc called when irc does not exist")
 
-    def onServerMessage(self, message, private):
+    def onServerMessage(self, message: str, private):
+        self.log.info("Got server message: " + message)
         if "The server has been restarted" in message and not private:
             raise WesException().reconnectWes()
+        if "Can't find '" in message:
+            name = message.split("'")[2]
+            self.log.info("User " + name + "is offline")
+            del self.pingUsers[name]
+
+    def tick(self):
+        now: datetime = datetime.datetime.now()
+        for user in self.pingUsers:
+            # if user not in online:
+            #    continue
+            interval, lastPing = self.pingUsers[user]
+            if lastPing + datetime.timedelta(minutes=interval) < now:
+                self.whisperOnWesnoth(user, "ping")
+                self.pingUsers[user] = (interval, now)

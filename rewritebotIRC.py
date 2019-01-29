@@ -81,7 +81,10 @@ class WesIrc:
         msg = msg.replace("Laela", "L" + u"\u200B" + "aela")
         msg = msg.replace("Ravana", "R" + u"\u200B" + "avana")
         # print("saying",msg)
-        self.sock.send(('PRIVMSG ' + self.homechan + ' :' + msg + '\r\n').encode())
+        try:
+            self.sock.send(('PRIVMSG ' + self.homechan + ' :' + msg + '\r\n').encode())
+        except:
+            self.log.error("sock.send errored")
 
     def whisper(self, target: str, msg: str):
         if type(msg) != type(''):
@@ -132,12 +135,13 @@ class WesIrc:
         if "451 JOIN :You have not registered" in line:
             self.login()
             return True
+        # :NickServ MODE Rav_bot :+r
         if ":NickServ MODE {} :+r".format(self.main.cfg.ircName) == line.strip():
             self.auth = True
             self.join(self.homechan)
             return True
         # TODO filter it to avoid spoofing this message
-        if "MODE {} +o {}".format(self.homechan, self.main.cfg.ircName) in line:
+        if "MODE {} +ao {}".format(self.homechan, self.main.cfg.ircName) in line or "MODE {} +o {}".format(self.homechan, self.main.cfg.ircName) in line:
             self.inChannel = True
             return True
         return False

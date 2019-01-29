@@ -208,7 +208,7 @@ class UserHolder:
     def getOnlineUsers(self) -> List[User]:
         return self._userList
 
-    def getOnlineNames(self) -> List[str]:
+    def getOnlineNames(self) -> List[str]: # TODO this only includes lobby names
         return list(map(lambda u: u.name, self._userList))
 
     def getUsers(self) -> Dict[str, User]:
